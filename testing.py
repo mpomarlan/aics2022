@@ -171,6 +171,31 @@ def getAndExplainConclusion(premise, theory):
             else:
                 break
     return maxSupportingRule, otherSupportingRules
+    
+def modifyPremise(premise, diff):
+    retq = set(premise)
+    prefs = {getPrefix(x): x for x in retq}
+    for e in diff:
+        polarity = True
+        if (0 < len(e)) and ('-' == e[0]):
+            polarity = False
+            mset = getPrefix(e[1:])
+        else:
+            mset = getPrefix(e)
+        if mset in prefs:
+            if (polarity) and (prefs[mset] != e):
+                retq.remove(prefs[mset])
+                retq.add(e)
+                prefs[mset] = e
+            else:
+                if prefs[mset] == e:
+                    retq.remove(e)
+                    prefs[mset].pop(mset)
+        else:
+            if polarity:
+                retq.add(e)
+                prefs[mset] = e
+    return frozenset(retq)
 
 def getAndCounterfactuallyExplainConclusion(premise, theory, counterfactualConclusion):
     def setPremiseForRule(premise, rule):
