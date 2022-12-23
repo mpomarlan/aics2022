@@ -135,6 +135,136 @@ def runTest():
     runTestInternal("no_bias_log_%0.02f_%d.log", 0.7, "Running tests for NO BIAS HeRO search")
     runTestInternal("kn_bias_log_%0.02f_%d.log", 0.7, "Running tests for KNOWLEDGE-BASED BIAS HeRO search")
 
+def getPrefix(p):
+    idx = p.find('_')
+    if -1 == idx:
+        return ''
+    return p[:idx]
+
+def makePref2TheoryMap(theories):
+    retq = {}
+    for t in theories:
+        mset = getPrefix(t[0][1])
+        retq[mset] = t
+    return retq
+
+def makeTestcase(entry, mset):
+    premise = set([])
+    conclusion = None
+    for e in entry:
+        pref = getPrefix(e)
+        if mset == pref:
+            conclusion = e
+        else:
+            premise.add(e)
+    return conclusion, premise
+
+def getAndExplainConclusion(premise, theory):
+    maxSupportingRule = None
+    otherSupportingRules = []
+    for r in reversed(theory):
+        if (not r[0].difference(premise)):
+            if maxSupportingRule is None:
+                maxSupportingRule = r
+            elif maxSupportingRule[1] == r[1]:
+                otherSupportingRules.append(r)
+            else:
+                break
+    return maxSupportingRule, otherSupportingRules
+
+def getAndCounterfactuallyExplainConclusion(premise, theory, counterfactualConclusion):
+    def setPremiseForRule(premise, rule):
+        diff = set()
+        newPremise = set(premise)
+        prefs = {getPrefix(x): x for x in newPremise}
+        for e in rule[0]:
+            if e not in premise:
+                mset = getPrefix(e)
+                if mset in prefs:
+                    newPremise.remove(prefs[mset])
+                newPremise.add(e)
+                prefs[mset] = e
+                diff.add(e)
+        return diff, newPremise
+    def updatePremise(diff, premise, makeTrue=None, makeFalse=None):
+        diff = set(diff)
+        newPremise = set(premise)
+        prefs = {getPrefix(x): x for x in newPremise}
+        if makeTrue is None:
+            makeTrue = []
+        if makeFalse is None:
+            makeFalse = []
+        for p in makeTrue:
+            mset = getPrefix(p)
+            if (mset in prefs) and (p not in newPremise):
+                newPremise.remove(prefs[mset])
+                diff.add(p)
+                newPremise.add(p)
+            else:
+                diff.add(p)
+                newPremise.add(p)
+            prefs[mset] = p
+        for p in makeFalse:
+            mset = getPrefix(p)
+            np = '-'+p
+            if mset in prefs:
+                if p in newPremise:
+                    newPremise.remove(p)
+                    diff.add(np)
+                    newPremise.add(np)
+                    prefs[mset] = np
+            else:
+                diff.add(np)
+                newPremise.add(np)
+                prefs[mset] = np
+        return diff, newPremise
+    def makeItWork(premise, rule, ruleIdx, theory):
+        diff, newPremise = setPremiseForRule(premise, rule)
+        for r in theory[ruleIdx+1:]:
+            if (r[1] != rule[1]) and (not r[0].difference(newPremise)):
+                diff, newPremise = updatePremise(diff, newPremise, makeTrue=None, makeFalse=r[0].difference(rule))
+        return diff, newPremise
+    maxSupportingRule, otherSupportingRules = getAndExplainConclusion(premise, theory)
+    if maxSupportingRule[1] == counterfactualConclusion:
+        return [], maxSupportingRule, otherSupportingRules, maxSupportingRule, otherSupportingRules
+    answer = None
+    counterfactualPremise = None
+    for k, r in enumerate(theory):
+        if counterfactualConclusion == r[1]:
+            candidate, newPremise = makeItWork(premise, r, k, theory)
+            if (answer is None) or (len(answer) > len(candidate)):
+                answer = candidate
+                counterfactualPremise = newPremise
+    maxCounterfactualRule, otherCounterfactualRules = getAndExplainConclusion(counterfactualPremise, theory)
+    return answer, maxSupportingRule, otherSupportingRules, maxCounterfactualRule, otherCounterfactualRules
+
+def getDefaultExemplar(conclusion, theory):
+    supportingRules = []
+    for r in theory:
+        if conclusion == r[1]:
+                supportingRules.append(r)
+    if [] == supportingRules:
+        return None, []
+    return supportingRules[0], supportingRules[1:]
+
+def updateTheory(oldRule, theory, newRule):
+    if oldRule not in theory:
+        return None
+    k = theory.index(oldRule)
+    theory[k] = newRule
+    askAbout = []
+    for r in theory[k+1:]:
+        if (not oldRule[0].difference(r[0])) or (not newRule[0].difference(r[0])):
+            askAbout.append(r)
+    return askAbout
+
+def printRule(rule):
+    ants = sorted([(getPrefix(x), x) for x in rule[0]])
+    retq = ""
+    for a in ants:
+        retq = retq + a[1] + ', '
+    retq = retq[:-2] + ' => ' + rule[1]
+    return retq
 
 if "__main__" == __name__:
     runTest()
